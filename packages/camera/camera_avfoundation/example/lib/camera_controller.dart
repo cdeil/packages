@@ -23,6 +23,8 @@ class CameraValue {
     required this.flashMode,
     required this.exposureMode,
     required this.focusMode,
+    this.exposurePointSupported = false,
+    this.focusPointSupported = false,
     required this.deviceOrientation,
     required this.description,
     this.lockedCaptureOrientation,
@@ -82,6 +84,12 @@ class CameraValue {
   /// The focus mode the camera is currently set to.
   final FocusMode focusMode;
 
+  /// Whether the current camera supports setting exposure points.
+  final bool exposurePointSupported;
+
+  /// Whether the current camera supports setting focus points.
+  final bool focusPointSupported;
+
   /// The current device UI orientation.
   final DeviceOrientation deviceOrientation;
 
@@ -130,6 +138,9 @@ class CameraValue {
       flashMode: flashMode ?? this.flashMode,
       exposureMode: exposureMode ?? this.exposureMode,
       focusMode: focusMode ?? this.focusMode,
+      exposurePointSupported:
+          exposurePointSupported ?? this.exposurePointSupported,
+      focusPointSupported: focusPointSupported ?? this.focusPointSupported,
       deviceOrientation: deviceOrientation ?? this.deviceOrientation,
       lockedCaptureOrientation: lockedCaptureOrientation == null
           ? this.lockedCaptureOrientation
@@ -155,6 +166,8 @@ class CameraValue {
         'flashMode: $flashMode, '
         'exposureMode: $exposureMode, '
         'focusMode: $focusMode, '
+        'exposurePointSupported: $exposurePointSupported, '
+        'focusPointSupported: $focusPointSupported, '
         'deviceOrientation: $deviceOrientation, '
         'lockedCaptureOrientation: $lockedCaptureOrientation, '
         'recordingOrientation: $recordingOrientation, '

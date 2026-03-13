@@ -10,6 +10,7 @@ import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import 'camera_controller.dart';
@@ -51,6 +52,10 @@ void _logInfo(String message) {
   debugPrint('CameraExample: $message');
 }
 
+const MethodChannel _macOSDebugChannel = MethodChannel(
+  'camera_example/macos_debug',
+);
+
 class _CameraExampleHomeState extends State<CameraExampleHome>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   CameraController? controller;
@@ -58,7 +63,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   XFile? videoFile;
   VideoPlayerController? videoController;
   VoidCallback? videoPlayerListener;
-  bool enableAudio = true;
+  bool enableAudio = !Platform.isMacOS;
   double _minAvailableExposureOffset = 0.0;
   double _maxAvailableExposureOffset = 0.0;
   double _currentExposureOffset = 0.0;
@@ -73,6 +78,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   double _currentScale = 1.0;
   double _baseScale = 1.0;
   String _statusMessage = 'No camera selected.';
+  Map<String, String> _cameraDisplayNames = <String, String>{};
 
   // Counting pointers (number of user fingers on screen)
   int _pointers = 0;
@@ -81,6 +87,8 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    unawaited(_loadCameraDisplayNames());
 
     if (_cameras.length == 1) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -117,6 +125,28 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       parent: _focusModeControlRowAnimationController,
       curve: Curves.easeInCubic,
     );
+  }
+
+  Future<void> _loadCameraDisplayNames() async {
+    if (!Platform.isMacOS) {
+      return;
+    }
+
+    try {
+      final Map<Object?, Object?>? names = await _macOSDebugChannel
+          .invokeMapMethod<Object?, Object?>('getCameraDisplayNames');
+      if (names == null || !mounted) {
+        return;
+      }
+      setState(() {
+        _cameraDisplayNames = names.map(
+          (Object? key, Object? value) =>
+              MapEntry(key! as String, value! as String),
+        );
+      });
+    } on PlatformException catch (error) {
+      _logInfo('Could not load macOS camera display names: ${error.message}');
+    }
   }
 
   @override
@@ -249,12 +279,15 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   }
 
   String _cameraSummary(CameraDescription description) {
-    return '${_cameraLensLabel(description)}:${description.name}';
+    return '${_cameraDisplayName(description)}:${description.name}';
   }
 
   String _cameraToggleLabel(CameraDescription description, int index) {
-    final String lens = _cameraLensLabel(description);
-    return '$lens ${index + 1}\n${_shortCameraId(description.name)}';
+    final String name = _cameraDisplayName(description);
+    if (_displayNameCount(name) == 1) {
+      return name;
+    }
+    return '$name ${index + 1}\n${_shortCameraId(description.name)}';
   }
 
   String _cameraLensLabel(CameraDescription description) {
@@ -263,6 +296,20 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       return 'camera';
     }
     return description.lensDirection.name;
+  }
+
+  String _cameraDisplayName(CameraDescription description) {
+    final String? macOSName = _cameraDisplayNames[description.name];
+    if (macOSName != null && macOSName.isNotEmpty) {
+      return macOSName;
+    }
+    return _cameraLensLabel(description);
+  }
+
+  int _displayNameCount(String name) {
+    return _cameras
+        .where((CameraDescription camera) => _cameraDisplayName(camera) == name)
+        .length;
   }
 
   String _shortCameraId(String id) {
@@ -307,6 +354,10 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   /// Display the thumbnail of the captured image or video.
   Widget _thumbnailWidget() {
     final VideoPlayerController? localVideoController = videoController;
+    final bool showVideoThumbnail =
+        localVideoController != null &&
+        localVideoController.value.isInitialized &&
+        localVideoController.value.aspectRatio > 0;
 
     return Expanded(
       child: Align(
@@ -314,13 +365,13 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            if (localVideoController == null && imageFile == null)
+            if (!showVideoThumbnail && imageFile == null)
               Container()
             else
               SizedBox(
                 width: 64.0,
                 height: 64.0,
-                child: (localVideoController == null)
+                child: !showVideoThumbnail
                     ? (
                       // The captured image on the web contains a network-accessible URL
                       // pointing to a location within the browser. It may be displayed
@@ -730,13 +781,32 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
 
     final CameraController cameraController = controller!;
+    final CameraValue cameraValue = cameraController.value;
+
+    if (!cameraValue.focusPointSupported &&
+        !cameraValue.exposurePointSupported) {
+      showInSnackBar('This camera does not support tap focus/exposure.');
+      return;
+    }
 
     final point = Point<double>(
       details.localPosition.dx / constraints.maxWidth,
       details.localPosition.dy / constraints.maxHeight,
     );
-    CameraPlatform.instance.setExposurePoint(cameraController.cameraId, point);
-    CameraPlatform.instance.setFocusPoint(cameraController.cameraId, point);
+
+    if (cameraValue.exposurePointSupported) {
+      unawaited(
+        CameraPlatform.instance.setExposurePoint(
+          cameraController.cameraId,
+          point,
+        ),
+      );
+    }
+    if (cameraValue.focusPointSupported) {
+      unawaited(
+        CameraPlatform.instance.setFocusPoint(cameraController.cameraId, point),
+      );
+    }
   }
 
   Future<void> onNewCameraSelected(CameraDescription cameraDescription) async {
@@ -1110,6 +1180,14 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       return;
     }
 
+    final VideoPlayerController? previousVideoController = videoController;
+
+    if (mounted && previousVideoController != null) {
+      setState(() {
+        videoController = null;
+      });
+    }
+
     final vController = kIsWeb
         ? VideoPlayerController.networkUrl(Uri.parse(videoFile!.path))
         : VideoPlayerController.file(File(videoFile!.path));
@@ -1126,7 +1204,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     vController.addListener(videoPlayerListener!);
     await vController.setLooping(true);
     await vController.initialize();
-    await videoController?.dispose();
+    await previousVideoController?.dispose();
     if (mounted) {
       setState(() {
         imageFile = null;
