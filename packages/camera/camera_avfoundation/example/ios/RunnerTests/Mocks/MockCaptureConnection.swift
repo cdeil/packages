@@ -24,4 +24,16 @@ final class MockCaptureConnection: NSObject, CaptureConnection {
   var isVideoMirroringSupported = false
   var isVideoOrientationSupported = false
   var preferredVideoStabilizationMode = PlatformVideoStabilizationMode.off
+
+  @available(macOS 14.0, iOS 17.0, *)
+  var videoRotationAngle: CGFloat {
+    get { _videoRotationAngle }
+    set { _videoRotationAngle = newValue }
+  }
+  private var _videoRotationAngle: CGFloat = 0
+
+  @available(macOS 14.0, iOS 17.0, *)
+  func isVideoRotationAngleSupported(_ angle: CGFloat) -> Bool {
+    return [0, 90, 180, 270].contains(angle)
+  }
 }

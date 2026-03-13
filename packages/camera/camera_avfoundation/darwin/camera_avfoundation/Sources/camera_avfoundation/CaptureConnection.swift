@@ -27,6 +27,16 @@ protocol CaptureConnection: NSObjectProtocol {
   /// Corresponds to the preferredVideoStabilizationMode property of `AVCaptureConnection`
   var preferredVideoStabilizationMode: PlatformVideoStabilizationMode { get set }
 
+  /// Corresponds to the `videoRotationAngle` property of `AVCaptureConnection`.
+  /// Available on macOS 14.0+ / iOS 17.0+.
+  @available(macOS 14.0, iOS 17.0, *)
+  var videoRotationAngle: CGFloat { get set }
+
+  /// Corresponds to the `isVideoRotationAngleSupported` method of `AVCaptureConnection`.
+  /// Available on macOS 14.0+ / iOS 17.0+.
+  @available(macOS 14.0, iOS 17.0, *)
+  func isVideoRotationAngleSupported(_ angle: CGFloat) -> Bool
+
 }
 
 final class DefaultCaptureConnection: NSObject, CaptureConnection {
@@ -64,5 +74,16 @@ final class DefaultCaptureConnection: NSObject, CaptureConnection {
         avConnection.preferredVideoStabilizationMode = getAvCaptureVideoStabilizationMode(newValue)
       #endif
     }
+  }
+
+  @available(macOS 14.0, iOS 17.0, *)
+  var videoRotationAngle: CGFloat {
+    get { avConnection.videoRotationAngle }
+    set { avConnection.videoRotationAngle = newValue }
+  }
+
+  @available(macOS 14.0, iOS 17.0, *)
+  func isVideoRotationAngleSupported(_ angle: CGFloat) -> Bool {
+    avConnection.isVideoRotationAngleSupported(angle)
   }
 }

@@ -7,7 +7,7 @@ Currently green:
 - `flutter_plugin_tools format --packages camera_avfoundation`
 - `flutter_plugin_tools analyze --packages camera_avfoundation,camera`
 - `flutter_plugin_tools dart-test --packages camera_avfoundation`
-- iOS native `RunnerTests`
+- iOS native `RunnerTests` (129 tests)
 - `flutter build macos` for the example app
 
 ## Confirmed Working
@@ -21,49 +21,53 @@ Currently green:
 - rapid camera switching no longer reproduces the earlier disposed-controller crash
 - unsupported tap-to-focus/exposure no longer throws on the iPhone camera
 
-## Current Testing Matrix
+## Orientation Fix Applied
+
+Root cause: `DeviceOrientationProvider` hardcoded `.landscapeLeft` on macOS, which the iOS-designed
+orientation mapper translated to `AVCaptureVideoOrientation.landscapeRight`, introducing an unwanted
+90° rotation on fixed-position macOS cameras.
+
+Fix: on macOS 14+, use `AVCaptureConnection.videoRotationAngle = 0` (identity) instead of the
+deprecated `videoOrientation` enum. For macOS < 14.0, fall back to `.portrait` (identity).
+Also removed the `normalizedPhotoDataForMacOS()` workaround from `SavePhotoDelegate` that was
+applying a blanket -90° CGContext rotation to photos.
+
+See [camera_avfoundation_macos_orientation_analysis.md](camera_avfoundation_macos_orientation_analysis.md) for the full analysis.
+
+## Current Testing Matrix (needs manual re-verification)
 
 | Camera | Current displayed name | Still image | Live preview/video | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | HD Pro Webcam C920 | OK | Rotated 90 degrees left | Device itself appears landscape-capable in native apps |
-| 2 | FaceTime HD Camera | OK | Rotated 90 degrees left | Internal Mac camera |
-| 3 | kPhone Camera | Rotated 90 degrees right | Rotated 90 degrees left | Continuity/iPhone camera still differs from internal cameras |
-
-Interpretation:
-
-- still-photo orientation is correct for the two non-Continuity cameras tested most recently
-- preview orientation is still wrong on all tested cameras
-- the Continuity/iPhone camera still has incorrect still-photo orientation as well
+| 1 | HD Pro Webcam C920 | Needs recheck | Needs recheck | Was rotated 90° left before fix |
+| 2 | FaceTime HD Camera | Needs recheck | Needs recheck | Was rotated 90° left before fix |
+| 3 | kPhone Camera | Needs recheck | Needs recheck | Was rotated 90° in both directions before fix |
 
 ## Open Issues
-
-### Orientation
-
-- preview remains rotated 90 degrees left on all tested cameras
-- Continuity/iPhone still photos remain rotated 90 degrees right
-- image rotation mismatch also causes the preview to appear stretched even though the underlying width/height values are correct
 
 ### Audio
 
 - after repeated camera switching in earlier manual testing, loud white noise played from the MacBook speakers for roughly 20 seconds
-- as a mitigation, audio is currently disabled by default on macOS in the example
-- explicit macOS audio testing is still needed before enabling it again
+- as a mitigation, audio is currently disabled by default on macOS in the example (`enableAudio = !Platform.isMacOS`)
+- macOS has no `AVAudioSession` — unlike iOS, there is no session category to configure; audio capture is set up directly via `AVCaptureAudioDataOutput` on the `audioCaptureSession`
+- the white noise likely came from a feedback loop between mic input and speaker output, since macOS does not have the `AVAudioSession.setCategory(.playAndRecord, options: .defaultToSpeaker)` separation that iOS uses
+- this is a known platform difference; fixing it properly would require either routing audio output explicitly or keeping audio disabled until a recording starts
+- **Impact**: low — audio defaults to off, users can toggle it on via the example UI when they want to test recording with audio
 
 ### Example video thumbnail crash
 
-Manual testing surfaced an example-side error while rendering the thumbnail video player:
-
-- `Bad state: No active player with ID 1.`
-
-This appears to be a `video_player` lifecycle issue in the example app rather than a core camera capture failure. The example has been hardened to clear old video controllers earlier, but this should still be rechecked manually.
+- `Bad state: No active player with ID 1.` error from `video_player_avfoundation`
+- occurs when the `VideoPlayerController` tries to interact with a player that has already been disposed
+- the example code disposes the old controller during `_startVideoPlayer()` after initializing the new one, but there is a race: the listener callback may fire after disposal
+- **Impact**: example-only, does not affect the plugin — the thumbnail just fails to display
+- **Possible fix**: guard the listener callback with a `mounted` and controller identity check before accessing the video controller
 
 ### macOS startup warning
 
-The startup log still includes:
-
 - `objc[...]: class 'NSKVONotifying_AVCapturePhotoOutput' not linked into application`
-
-It does not currently appear to block preview or still capture, so it remains a secondary issue.
+- appears on startup in the console log
+- does not block preview or still capture
+- likely a KVO observation side-effect from AVFoundation's internal implementation
+- **Impact**: cosmetic log noise only
 
 ## Example-Only Debugging Notes
 
@@ -73,7 +77,8 @@ It does not currently appear to block preview or still capture, so it remains a 
 
 ## Next Manual Checks
 
-1. Recheck preview orientation on all three cameras after the latest preview/layout changes.
-2. Recheck still-photo orientation on the Continuity/iPhone camera.
-3. Confirm that the `VideoPlayer` thumbnail crash no longer occurs.
-4. If audio is re-enabled for testing, explicitly test for speaker noise during camera switching.
+1. Recheck preview orientation on all three cameras after the `videoRotationAngle` fix.
+2. Recheck still-photo orientation on all cameras, especially the Continuity/iPhone camera.
+3. Confirm that still photos are written to disk (check the path shown in the snack bar).
+4. Confirm that the `VideoPlayer` thumbnail crash no longer occurs, or reproduces consistently.
+5. If audio is re-enabled for testing, explicitly test for speaker noise during camera switching.

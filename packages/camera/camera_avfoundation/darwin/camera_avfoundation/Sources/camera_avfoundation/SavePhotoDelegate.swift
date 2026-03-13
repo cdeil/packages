@@ -8,9 +8,7 @@ import Foundation
 #if os(iOS)
   import Flutter
 #elseif os(macOS)
-  import AppKit
   import FlutterMacOS
-  import ImageIO
 #endif
 
 private func debugSavePhotoLog(_ message: String) {
@@ -18,48 +16,6 @@ private func debugSavePhotoLog(_ message: String) {
     NSLog("camera_avfoundation: %@", message)
   #endif
 }
-
-#if os(macOS)
-  private func normalizedPhotoDataForMacOS(_ data: Data, path: String) -> Data {
-    guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
-      let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil),
-      cgImage.height > cgImage.width
-    else {
-      return data
-    }
-
-    let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-    guard
-      let context = CGContext(
-        data: nil,
-        width: cgImage.height,
-        height: cgImage.width,
-        bitsPerComponent: cgImage.bitsPerComponent,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: cgImage.bitmapInfo.rawValue)
-    else {
-      return data
-    }
-
-    context.translateBy(x: 0, y: CGFloat(cgImage.width))
-    context.rotate(by: -.pi / 2)
-    context.draw(
-      cgImage,
-      in: CGRect(x: 0, y: 0, width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
-
-    guard let rotatedImage = context.makeImage() else {
-      return data
-    }
-
-    let bitmap = NSBitmapImageRep(cgImage: rotatedImage)
-    let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
-    let fileType: NSBitmapImageRep.FileType = fileExtension == "png" ? .png : .jpeg
-    let properties: [NSBitmapImageRep.PropertyKey: Any] =
-      fileType == .jpeg ? [.compressionFactor: 1.0] : [:]
-    return bitmap.representation(using: fileType, properties: properties) ?? data
-  }
-#endif
 
 /// The completion handler block for save photo operations.
 /// Can be called from either main queue or IO queue.
@@ -122,15 +78,6 @@ class SavePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
       do {
         let data = photoDataProvider()
         debugSavePhotoLog("photo data available=\(data != nil) path=\(strongSelf.path)")
-
-        #if os(macOS)
-          if let rawData = data as? Data {
-            let normalizedData = normalizedPhotoDataForMacOS(rawData, path: strongSelf.path)
-            try normalizedData.writeToPath(strongSelf.path, options: .atomic)
-            strongSelf.completionHandler(strongSelf.path, nil)
-            return
-          }
-        #endif
 
         try data?.writeToPath(strongSelf.path, options: .atomic)
         strongSelf.completionHandler(strongSelf.path, nil)

@@ -63,7 +63,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   XFile? videoFile;
   VideoPlayerController? videoController;
   VoidCallback? videoPlayerListener;
-  bool enableAudio = !Platform.isMacOS;
+  bool enableAudio = true;
   double _minAvailableExposureOffset = 0.0;
   double _maxAvailableExposureOffset = 0.0;
   double _currentExposureOffset = 0.0;
@@ -907,6 +907,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
           videoController = null;
         });
         if (file != null) {
+          _logInfo('Picture saved to ${file.path}');
           showInSnackBar('Picture saved to ${file.path}');
         }
       }
@@ -969,31 +970,43 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
   }
 
-  void onSetFlashModeButtonPressed(FlashMode mode) {
-    setFlashMode(mode).then((_) {
-      if (mounted) {
-        setState(() {});
-      }
-      showInSnackBar('Flash mode set to ${mode.toString().split('.').last}');
-    });
+  Future<void> onSetFlashModeButtonPressed(FlashMode mode) async {
+    try {
+      await setFlashMode(mode);
+    } on CameraException {
+      // Already handled by setFlashMode.
+      return;
+    }
+    if (mounted) {
+      setState(() {});
+    }
+    showInSnackBar('Flash mode set to ${mode.toString().split('.').last}');
   }
 
-  void onSetExposureModeButtonPressed(ExposureMode mode) {
-    setExposureMode(mode).then((_) {
-      if (mounted) {
-        setState(() {});
-      }
-      showInSnackBar('Exposure mode set to ${mode.toString().split('.').last}');
-    });
+  Future<void> onSetExposureModeButtonPressed(ExposureMode mode) async {
+    try {
+      await setExposureMode(mode);
+    } on CameraException {
+      // Already handled by setExposureMode.
+      return;
+    }
+    if (mounted) {
+      setState(() {});
+    }
+    showInSnackBar('Exposure mode set to ${mode.toString().split('.').last}');
   }
 
-  void onSetFocusModeButtonPressed(FocusMode mode) {
-    setFocusMode(mode).then((_) {
-      if (mounted) {
-        setState(() {});
-      }
-      showInSnackBar('Focus mode set to ${mode.toString().split('.').last}');
-    });
+  Future<void> onSetFocusModeButtonPressed(FocusMode mode) async {
+    try {
+      await setFocusMode(mode);
+    } on CameraException {
+      // Already handled by setFocusMode.
+      return;
+    }
+    if (mounted) {
+      setState(() {});
+    }
+    showInSnackBar('Focus mode set to ${mode.toString().split('.').last}');
   }
 
   void onVideoRecordButtonPressed() {
@@ -1010,6 +1023,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
         setState(() {});
       }
       if (file != null) {
+        _logInfo('Video recorded to ${file.path}');
         showInSnackBar('Video recorded to ${file.path}');
         videoFile = file;
         _startVideoPlayer();
@@ -1188,23 +1202,28 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       });
     }
 
+    await previousVideoController?.dispose();
+
     final vController = kIsWeb
         ? VideoPlayerController.networkUrl(Uri.parse(videoFile!.path))
         : VideoPlayerController.file(File(videoFile!.path));
 
     videoPlayerListener = () {
-      if (videoController != null) {
-        // Refreshing the state to update video player with the correct ratio.
-        if (mounted) {
-          setState(() {});
-        }
-        videoController!.removeListener(videoPlayerListener!);
+      // Only update state if this controller is still the active one.
+      if (videoController == vController && mounted) {
+        setState(() {});
+        vController.removeListener(videoPlayerListener!);
       }
     };
     vController.addListener(videoPlayerListener!);
     await vController.setLooping(true);
-    await vController.initialize();
-    await previousVideoController?.dispose();
+    await vController.setVolume(0.0);
+    try {
+      await vController.initialize();
+    } catch (e) {
+      _logInfo('Video player initialization failed: $e');
+      return;
+    }
     if (mounted) {
       setState(() {
         imageFile = null;

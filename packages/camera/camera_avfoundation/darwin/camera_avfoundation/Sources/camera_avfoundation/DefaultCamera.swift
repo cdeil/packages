@@ -885,12 +885,51 @@ final class DefaultCamera: NSObject, Camera {
   private func updateOrientation(
     _ orientation: PlatformDeviceOrientation, forCaptureOutput captureOutput: CaptureOutput
   ) {
-    if let connection = captureOutput.connection(with: .video),
-      connection.isVideoOrientationSupported
-    {
-      connection.videoOrientation = videoOrientation(forDeviceOrientation: orientation)
-    }
+    guard let connection = captureOutput.connection(with: .video) else { return }
+
+    #if os(macOS)
+      // On macOS, cameras are fixed-position (no gyroscope), so use videoRotationAngle
+      // to set the rotation directly. The default angle of 0 is correct for most macOS
+      // cameras. When the user locks a specific orientation via the public API, map it
+      // to the corresponding angle.
+      if #available(macOS 14.0, *) {
+        let angle = videoRotationAngle(forDeviceOrientation: orientation)
+        if connection.isVideoRotationAngleSupported(angle) {
+          connection.videoRotationAngle = angle
+        }
+      } else {
+        // Fallback for macOS < 14.0: use portrait (identity) orientation.
+        if connection.isVideoOrientationSupported {
+          connection.videoOrientation = .portrait
+        }
+      }
+    #else
+      if connection.isVideoOrientationSupported {
+        connection.videoOrientation = videoOrientation(forDeviceOrientation: orientation)
+      }
+    #endif
   }
+
+  #if os(macOS)
+    /// Maps a device orientation to the corresponding video rotation angle in degrees
+    /// for macOS fixed-position cameras.
+    private func videoRotationAngle(
+      forDeviceOrientation orientation: PlatformDeviceOrientation
+    ) -> CGFloat {
+      switch orientation {
+      case .portraitUp:
+        return 0
+      case .landscapeLeft:
+        return 0
+      case .landscapeRight:
+        return 180
+      case .portraitDown:
+        return 180
+      default:
+        return 0
+      }
+    }
+  #endif
 
   private func videoOrientation(forDeviceOrientation deviceOrientation: PlatformDeviceOrientation)
     -> AVCaptureVideoOrientation
