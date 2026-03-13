@@ -29,16 +29,12 @@ class CameraPreview extends StatelessWidget {
                   controller.value.previewSize!.width /
                   controller.value.previewSize!.height;
               return AspectRatio(
-                aspectRatio: _isLandscape()
+                aspectRatio: _needsMacOSPreviewRotation()
+                    ? (1 / cameraAspectRatio)
+                    : _isLandscape()
                     ? cameraAspectRatio
                     : (1 / cameraAspectRatio),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    _wrapInRotatedBox(child: controller.buildPreview()),
-                    child ?? Container(),
-                  ],
-                ),
+                child: _buildPreviewContent(child),
               );
             },
             child: child,
@@ -46,12 +42,52 @@ class CameraPreview extends StatelessWidget {
         : Container();
   }
 
+  Widget _buildPreviewContent(Widget? child) {
+    final Widget preview = controller.buildPreview();
+
+    if (_needsMacOSPreviewRotation()) {
+      final Size previewSize = controller.value.previewSize!;
+      return Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          FittedBox(
+            child: SizedBox(
+              width: previewSize.width,
+              height: previewSize.height,
+              child: RotatedBox(quarterTurns: 1, child: preview),
+            ),
+          ),
+          child ?? Container(),
+        ],
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        _wrapInRotatedBox(child: preview),
+        child ?? Container(),
+      ],
+    );
+  }
+
   Widget _wrapInRotatedBox({required Widget child}) {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+    if (kIsWeb) {
+      return child;
+    }
+
+    if (defaultTargetPlatform != TargetPlatform.android) {
       return child;
     }
 
     return RotatedBox(quarterTurns: _getQuarterTurns(), child: child);
+  }
+
+  bool _needsMacOSPreviewRotation() {
+    return defaultTargetPlatform == TargetPlatform.macOS &&
+        controller.value.previewSize != null &&
+        controller.value.previewSize!.height >
+            controller.value.previewSize!.width;
   }
 
   bool _isLandscape() {

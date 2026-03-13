@@ -47,6 +47,10 @@ void _logError(String code, String? message) {
   print('Error: $code${message == null ? '' : '\nError Message: $message'}');
 }
 
+void _logInfo(String message) {
+  debugPrint('CameraExample: $message');
+}
+
 class _CameraExampleHomeState extends State<CameraExampleHome>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   CameraController? controller;
@@ -68,6 +72,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   double _maxAvailableZoom = 1.0;
   double _currentScale = 1.0;
   double _baseScale = 1.0;
+  String _statusMessage = 'No camera selected.';
 
   // Counting pointers (number of user fingers on screen)
   int _pointers = 0;
@@ -76,6 +81,17 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    if (_cameras.length == 1) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted && controller == null) {
+          _updateStatusMessage(
+            'Auto-selecting ${_cameraSummary(_cameras.single)}',
+          );
+          unawaited(onNewCameraSelected(_cameras.single));
+        }
+      });
+    }
 
     _flashModeControlRowAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -108,6 +124,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     WidgetsBinding.instance.removeObserver(this);
     _flashModeControlRowAnimationController.dispose();
     _exposureModeControlRowAnimationController.dispose();
+    unawaited(controller?.dispose());
     super.dispose();
   }
 
@@ -151,6 +168,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
               ),
             ),
           ),
+          _debugStatusPanel(),
           _captureControlRowWidget(),
           _modeControlRowWidget(),
           Padding(
@@ -196,6 +214,72 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
           ),
         ),
       );
+    }
+  }
+
+  Widget _debugStatusPanel() {
+    final CameraController? cameraController = controller;
+    final CameraValue? cameraValue = cameraController?.value;
+    final lines = <String>[
+      'Status: $_statusMessage',
+      'Available cameras: ${_cameras.length}',
+      if (_cameras.isNotEmpty)
+        'Detected: ${_cameras.map(_cameraSummary).join(' | ')}',
+      'Selected: ${cameraController == null ? 'none' : _cameraSummary(cameraController.description)}',
+      'Initialized: ${cameraValue?.isInitialized ?? false}',
+      'Preview paused: ${cameraValue?.isPreviewPaused ?? false}',
+      'Recording video: ${cameraValue?.isRecordingVideo ?? false}',
+      'Streaming images: ${cameraValue?.isStreamingImages ?? false}',
+      'Taking picture: ${cameraValue?.isTakingPicture ?? false}',
+    ];
+
+    return Container(
+      width: double.infinity,
+      color: Colors.black87,
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      child: Text(
+        lines.join('\n'),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12.0,
+          height: 1.3,
+        ),
+      ),
+    );
+  }
+
+  String _cameraSummary(CameraDescription description) {
+    return '${_cameraLensLabel(description)}:${description.name}';
+  }
+
+  String _cameraToggleLabel(CameraDescription description, int index) {
+    final String lens = _cameraLensLabel(description);
+    return '$lens ${index + 1}\n${_shortCameraId(description.name)}';
+  }
+
+  String _cameraLensLabel(CameraDescription description) {
+    if (defaultTargetPlatform == TargetPlatform.macOS &&
+        description.lensDirection == CameraLensDirection.external) {
+      return 'camera';
+    }
+    return description.lensDirection.name;
+  }
+
+  String _shortCameraId(String id) {
+    if (id.length <= 8) {
+      return id;
+    }
+    return '...${id.substring(id.length - 4)}';
+  }
+
+  void _updateStatusMessage(String message) {
+    _logInfo(message);
+    if (mounted) {
+      setState(() {
+        _statusMessage = message;
+      });
+    } else {
+      _statusMessage = message;
     }
   }
 
@@ -588,12 +672,29 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
 
     final bool isRecording = controller?.value.isRecordingVideo ?? false;
 
-    for (final CameraDescription cameraDescription in _cameras) {
+    for (final (int, CameraDescription) entry in _cameras.indexed) {
+      final int index = entry.$1;
+      final CameraDescription cameraDescription = entry.$2;
       toggles.add(
         SizedBox(
-          width: 90.0,
+          width: 92.0,
           child: RadioListTile<CameraDescription>(
-            title: Icon(getCameraLensIcon(cameraDescription.lensDirection)),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(getCameraLensIcon(cameraDescription.lensDirection)),
+                const SizedBox(height: 4.0),
+                Text(
+                  _cameraToggleLabel(cameraDescription, index),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 10.0),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
             value: cameraDescription,
             enabled: !isRecording,
           ),
@@ -608,7 +709,10 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
           onNewCameraSelected(description);
         }
       },
-      child: Row(children: toggles),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: toggles),
+      ),
     );
   }
 
@@ -636,6 +740,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   }
 
   Future<void> onNewCameraSelected(CameraDescription cameraDescription) async {
+    _updateStatusMessage('Selected ${_cameraSummary(cameraDescription)}');
     if (controller != null) {
       return controller!.setDescription(cameraDescription);
     } else {
@@ -646,6 +751,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   Future<void> _initializeCameraController(
     CameraDescription cameraDescription,
   ) async {
+    _updateStatusMessage('Initializing ${_cameraSummary(cameraDescription)}');
     final cameraController = CameraController(
       cameraDescription,
       kIsWeb ? ResolutionPreset.max : ResolutionPreset.medium,
@@ -687,7 +793,11 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
             .getMinZoomLevel(cameraController.cameraId)
             .then((double value) => _minAvailableZoom = value),
       ]);
+      _updateStatusMessage('Initialized ${_cameraSummary(cameraDescription)}');
     } on CameraException catch (e) {
+      _updateStatusMessage(
+        'Initialization failed for ${_cameraSummary(cameraDescription)}: ${e.code}',
+      );
       switch (e.code) {
         case 'CameraAccessDenied':
           showInSnackBar('You have denied camera access.');
@@ -1071,6 +1181,9 @@ Future<void> main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
     _cameras = await CameraPlatform.instance.availableCameras();
+    _logInfo(
+      'availableCameras returned ${_cameras.length}: ${_cameras.map((CameraDescription camera) => '${camera.lensDirection.name}:${camera.name}').join(' | ')}',
+    );
   } on CameraException catch (e) {
     _logError(e.code, e.description);
   }

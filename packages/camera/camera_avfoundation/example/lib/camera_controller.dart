@@ -210,6 +210,7 @@ class CameraController extends ValueNotifier<CameraValue> {
   late int _cameraId;
 
   bool _isDisposed = false;
+  int _initializationToken = 0;
   StreamSubscription<CameraImageData>? _imageStreamSubscription;
   FutureOr<bool>? _initCalled;
   StreamSubscription<DeviceOrientationChangedEvent>?
@@ -222,51 +223,66 @@ class CameraController extends ValueNotifier<CameraValue> {
   Future<void> initialize() => _initializeWithDescription(description);
 
   Future<void> _initializeWithDescription(CameraDescription description) async {
-    final initializeCompleter = Completer<CameraInitializedEvent>();
+    final int initializationToken = ++_initializationToken;
+
+    await _deviceOrientationSubscription?.cancel();
+    _deviceOrientationSubscription = null;
+
+    if (_initCalled != null) {
+      await CameraPlatform.instance.dispose(_cameraId);
+      _initCalled = null;
+    }
 
     _deviceOrientationSubscription = CameraPlatform.instance
         .onDeviceOrientationChanged()
         .listen((DeviceOrientationChangedEvent event) {
+          if (_isDisposed || initializationToken != _initializationToken) {
+            return;
+          }
           value = value.copyWith(deviceOrientation: event.orientation);
         });
 
-    _cameraId = await CameraPlatform.instance.createCameraWithSettings(
+    final int cameraId = await CameraPlatform.instance.createCameraWithSettings(
       description,
       mediaSettings,
     );
 
-    unawaited(
-      CameraPlatform.instance.onCameraInitialized(_cameraId).first.then((
-        CameraInitializedEvent event,
-      ) {
-        initializeCompleter.complete(event);
-      }),
-    );
+    if (_isDisposed || initializationToken != _initializationToken) {
+      await CameraPlatform.instance.dispose(cameraId);
+      return;
+    }
+    _cameraId = cameraId;
+
+    final Future<CameraInitializedEvent> initializationEvent = CameraPlatform
+        .instance
+        .onCameraInitialized(_cameraId)
+        .first;
 
     await CameraPlatform.instance.initializeCamera(
       _cameraId,
       imageFormatGroup: imageFormatGroup ?? ImageFormatGroup.unknown,
     );
 
+    if (_isDisposed || initializationToken != _initializationToken) {
+      await CameraPlatform.instance.dispose(_cameraId);
+      return;
+    }
+
+    final CameraInitializedEvent event = await initializationEvent;
+
+    if (_isDisposed || initializationToken != _initializationToken) {
+      await CameraPlatform.instance.dispose(_cameraId);
+      return;
+    }
+
     value = value.copyWith(
       isInitialized: true,
       description: description,
-      previewSize: await initializeCompleter.future.then(
-        (CameraInitializedEvent event) =>
-            Size(event.previewWidth, event.previewHeight),
-      ),
-      exposureMode: await initializeCompleter.future.then(
-        (CameraInitializedEvent event) => event.exposureMode,
-      ),
-      focusMode: await initializeCompleter.future.then(
-        (CameraInitializedEvent event) => event.focusMode,
-      ),
-      exposurePointSupported: await initializeCompleter.future.then(
-        (CameraInitializedEvent event) => event.exposurePointSupported,
-      ),
-      focusPointSupported: await initializeCompleter.future.then(
-        (CameraInitializedEvent event) => event.focusPointSupported,
-      ),
+      previewSize: Size(event.previewWidth, event.previewHeight),
+      exposureMode: event.exposureMode,
+      focusMode: event.focusMode,
+      exposurePointSupported: event.exposurePointSupported,
+      focusPointSupported: event.focusPointSupported,
     );
 
     _initCalled = true;
@@ -473,6 +489,7 @@ class CameraController extends ValueNotifier<CameraValue> {
       return;
     }
     _isDisposed = true;
+    _initializationToken++;
     await _deviceOrientationSubscription?.cancel();
     super.dispose();
     if (_initCalled != null) {

@@ -14,6 +14,12 @@ import AVFoundation
   import FlutterMacOS
 #endif
 
+private func debugCameraPluginLog(_ message: String) {
+  #if os(macOS)
+    NSLog("camera_avfoundation: %@", message)
+  #endif
+}
+
 public final class CameraPlugin: NSObject, FlutterPlugin {
   private let registry: FlutterTextureRegistry
   private let messenger: FlutterBinaryMessenger
@@ -185,7 +191,8 @@ extension CameraPlugin: CameraApi {
       ]
     #else
       return [
-        .builtInWideAngleCamera
+        .builtInWideAngleCamera,
+        .externalUnknown,
       ]
     #endif
   }
@@ -339,6 +346,10 @@ extension CameraPlugin: CameraApi {
     guard let camera = camera else { return }
 
     camera.videoFormat = getPixelFormat(for: imageFormat)
+
+    debugCameraPluginLog(
+      "initialize cameraId=\(cameraId) imageFormat=\(imageFormat.rawValue) pixelFormat=\(camera.videoFormat)"
+    )
 
     camera.onFrameAvailable = { [weak self] in
       guard let camera = self?.camera else { return }

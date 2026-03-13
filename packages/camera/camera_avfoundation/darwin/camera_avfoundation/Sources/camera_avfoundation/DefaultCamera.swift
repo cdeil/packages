@@ -11,6 +11,12 @@ import CoreMotion
   import FlutterMacOS
 #endif
 
+private func debugCameraLog(_ message: String) {
+  #if os(macOS)
+    NSLog("camera_avfoundation: %@", message)
+  #endif
+}
+
 final class DefaultCamera: NSObject, Camera {
   var dartAPI: CameraEventApi?
   var onFrameAvailable: (() -> Void)?
@@ -132,6 +138,8 @@ final class DefaultCamera: NSObject, Camera {
   private var exposureMode = PlatformExposureMode.auto
   private var focusMode = PlatformFocusMode.auto
   private var flashMode: PlatformFlashMode
+  private var hasLoggedFirstVideoFrame = false
+  private var hasLoggedFirstPixelBufferCopy = false
 
   private static func pigeonErrorFromNSError(_ error: NSError) -> PigeonError {
     return PigeonError(
@@ -200,15 +208,57 @@ final class DefaultCamera: NSObject, Camera {
       videoFormat: videoFormat,
       captureDeviceInputFactory: configuration.captureDeviceInputFactory)
 
+    debugCameraLog(
+      "init device=\(captureDevice.uniqueID) type=\(captureDevice.deviceType.rawValue) position=\(captureDevice.position.rawValue) requestedPixelFormat=\(videoFormat) availablePixelFormats=\(captureVideoOutput.availableVideoPixelFormatTypes)"
+    )
+
     super.init()
 
     captureVideoOutput.setSampleBufferDelegate(self, queue: captureSessionQueue)
 
-    videoCaptureSession.addInputWithNoConnections(captureVideoInput)
-    videoCaptureSession.addOutputWithNoConnections(captureVideoOutput.avOutput)
-    videoCaptureSession.addConnection(connection)
+    #if os(macOS)
+      videoCaptureSession.beginConfiguration()
+      defer { videoCaptureSession.commitConfiguration() }
 
-    videoCaptureSession.addOutput(capturePhotoOutput.avOutput)
+      guard videoCaptureSession.canAddInput(captureVideoInput) else {
+        throw NSError(
+          domain: NSCocoaErrorDomain,
+          code: URLError.unknown.rawValue,
+          userInfo: [
+            NSLocalizedDescriptionKey: "Unable to add video input to macOS capture session."
+          ])
+      }
+      videoCaptureSession.addInput(captureVideoInput)
+
+      guard videoCaptureSession.canAddOutput(captureVideoOutput.avOutput) else {
+        throw NSError(
+          domain: NSCocoaErrorDomain,
+          code: URLError.unknown.rawValue,
+          userInfo: [
+            NSLocalizedDescriptionKey: "Unable to add video data output to macOS capture session."
+          ])
+      }
+      videoCaptureSession.addOutput(captureVideoOutput.avOutput)
+
+      guard videoCaptureSession.canAddOutput(capturePhotoOutput.avOutput) else {
+        throw NSError(
+          domain: NSCocoaErrorDomain,
+          code: URLError.unknown.rawValue,
+          userInfo: [
+            NSLocalizedDescriptionKey: "Unable to add photo output to macOS capture session."
+          ])
+      }
+      videoCaptureSession.addOutput(capturePhotoOutput.avOutput)
+
+      debugCameraLog(
+        "macOS auto-wired videoConnectionExists=\(captureVideoOutput.connection(with: .video) != nil) photoConnectionExists=\(capturePhotoOutput.connection(with: .video) != nil)"
+      )
+    #else
+      videoCaptureSession.addInputWithNoConnections(captureVideoInput)
+      videoCaptureSession.addOutputWithNoConnections(captureVideoOutput.avOutput)
+      videoCaptureSession.addConnection(connection)
+      videoCaptureSession.addOutput(capturePhotoOutput.avOutput)
+    #endif
 
     #if os(iOS)
       motionManager.startAccelerometerUpdates()
@@ -513,8 +563,14 @@ final class DefaultCamera: NSObject, Camera {
   }
 
   func start() {
+    debugCameraLog(
+      "start before videoRunning=\(videoCaptureSession.isRunning) audioRunning=\(audioCaptureSession.isRunning) preset=\(videoCaptureSession.sessionPreset.rawValue)"
+    )
     videoCaptureSession.startRunning()
     audioCaptureSession.startRunning()
+    debugCameraLog(
+      "start after videoRunning=\(videoCaptureSession.isRunning) audioRunning=\(audioCaptureSession.isRunning)"
+    )
   }
 
   func stop() {
@@ -749,6 +805,10 @@ final class DefaultCamera: NSObject, Camera {
         }
       #endif
     }
+
+    debugCameraLog(
+      "captureToFile codecTypes=\(capturePhotoOutput.availablePhotoCodecTypes.map { $0.rawValue }) highRes=\(settings.isHighResolutionPhotoEnabled) flashMode=\(flashMode)"
+    )
 
     let path: String
     do {
@@ -1271,6 +1331,13 @@ final class DefaultCamera: NSObject, Camera {
     if output == captureVideoOutput.avOutput {
       if let newBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
 
+        if !hasLoggedFirstVideoFrame {
+          hasLoggedFirstVideoFrame = true
+          debugCameraLog(
+            "first video frame width=\(CVPixelBufferGetWidth(newBuffer)) height=\(CVPixelBufferGetHeight(newBuffer)) pixelFormat=\(CVPixelBufferGetPixelFormatType(newBuffer))"
+          )
+        }
+
         pixelBufferSynchronizationQueue.sync {
           latestPixelBuffer = newBuffer
         }
@@ -1506,6 +1573,12 @@ final class DefaultCamera: NSObject, Camera {
     }
 
     if let buffer = pixelBuffer {
+      if !hasLoggedFirstPixelBufferCopy {
+        hasLoggedFirstPixelBufferCopy = true
+        debugCameraLog(
+          "copyPixelBuffer width=\(CVPixelBufferGetWidth(buffer)) height=\(CVPixelBufferGetHeight(buffer)) pixelFormat=\(CVPixelBufferGetPixelFormatType(buffer))"
+        )
+      }
       return Unmanaged.passRetained(buffer)
     } else {
       return nil
@@ -1516,6 +1589,7 @@ final class DefaultCamera: NSObject, Camera {
   ///
   /// Can be called from any thread.
   private func reportErrorMessage(_ errorMessage: String) {
+    debugCameraLog("error \(errorMessage)")
     ensureToRunOnMainQueue { [weak self] in
       self?.dartAPI?.error(message: errorMessage) { _ in
         // Ignore any errors, as this is just an event broadcast.
