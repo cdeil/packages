@@ -42,37 +42,44 @@ Bottom line: the architectural migration is done. The remaining work before a PR
 - Fixed example/test issues introduced during migration.
 - Restored a clean validation path for format, analyze, Dart tests, iOS native tests, and macOS build.
 
-## External-Camera Prototype Comparison
+## Prototype Comparison
 
-I compared this branch against Stuart's earlier `ios-support-external-cameras` prototype branch.
+There are two relevant earlier prototypes, and they should be distinguished clearly.
 
-### What Stuart's branch did
+### Christoph's iOS external-camera prototype
 
-- It kept the existing iOS AVFoundation architecture.
-- It added external-camera discovery on supported OS versions by appending `.external` to the discovery device list.
-- It added disconnect handling for the active external camera by observing `AVCaptureDevice.wasDisconnectedNotification` and surfacing an error when the active external device disappeared.
+Your `ios-support-external-cameras` branch was an iOS/iPadOS external-camera prototype.
 
-### What this branch does differently
+What it demonstrated:
 
-- The main difference is architectural scope, not capture-model philosophy.
-- This branch focuses on making the plugin genuinely Darwin-shared:
-  - shared package layout
-  - platform-neutral orientation types
-  - AVFoundation wrapper seams
-  - macOS-safe capability handling
-- It does not currently carry forward Stuart's external-camera discovery/disconnect behavior into the active shared implementation yet.
+- external-camera discovery can be added within the existing AVFoundation camera architecture
+- disconnect handling can also be layered into that same architecture
+- the external-camera work looks like an additive feature, not a sign that the capture model itself needs to be replaced
+
+This branch does not yet carry forward that external-camera discovery/disconnect behavior into the active shared implementation.
+
+### Stuart's earlier macOS prototype
+
+Stuart's earlier macOS prototype is the outdated `macos-camera` work and compare view referenced in the issue comments, not `ios-support-external-cameras`.
+
+What Stuart said in the issue:
+
+- the expected direction is to extend `camera_avfoundation`
+- his earlier `macos-camera` diff is an outdated example of that expected approach
+- that prototype compiled, but did not work correctly yet
+- specifically, the preview was blank and taking a picture returned an `NSError`, suggesting capture configuration problems rather than a fundamental architectural mismatch
 
 ### Conclusion from the comparison
 
-External-camera support does not appear to require a fundamentally different session or device model on macOS.
+Taken together, these earlier prototypes do not suggest that macOS support needs a separate session or device architecture.
 
 Why:
 
-- Stuart's prototype handled external cameras by extending the same capture-session architecture rather than introducing a separate pipeline.
-- The current branch also keeps the same overall camera/session model; it just makes that model portable across Darwin platforms.
-- The work needed for external cameras looks additive: discovery policy, disconnect handling, and capability validation.
+- your iOS external-camera prototype showed that external-camera support fits into the existing AVFoundation model
+- Stuart's macOS prototype pointed in the same high-level direction: extend `camera_avfoundation`, not create a separate long-term implementation
+- the main problems in Stuart's WIP were runtime capture configuration issues, not evidence that shared Darwin architecture is the wrong model
 
-So the answer to the question in the report is: no, the earlier prototype does not suggest that macOS external-camera support forces a significantly different session/device architecture.
+So the answer to the architecture question remains: no, the earlier prototypes do not suggest that macOS external-camera support forces a significantly different session/device architecture.
 
 ## Recommendation
 
@@ -85,6 +92,62 @@ The evidence so far points to:
 - plus explicit handling for external-device discovery and disconnects.
 
 That is consistent with both the current implementation and the earlier external-camera prototype.
+
+## Proposed 3 PR Split
+
+If the full branch is too large to review comfortably, the cleanest split is three PRs.
+
+### PR 1: Internal refactor only
+
+Goal:
+
+- land the shared-camera-path cleanup without claiming macOS support yet
+
+Scope:
+
+- platform-neutral orientation refactor
+- AVFoundation wrapper/protocol reshaping
+- iOS test updates required by those refactors
+
+Why this helps:
+
+- reviewers can treat it as internal cleanup with existing behavior preserved
+- it removes most of the logic churn from the macOS feature PR
+
+### PR 2: Shared Darwin plumbing
+
+Goal:
+
+- switch the package to the shared Darwin layout and remove the obsolete temporary native copy
+
+Scope:
+
+- `sharedDarwinSource: true`
+- `darwin/` package and podspec
+- conditional `Flutter` / `FlutterMacOS` import plumbing
+- example/build wiring needed for the shared Darwin structure
+- delete the obsolete temporary `macos/` implementation copy
+
+Why this helps:
+
+- reviewers can focus on repo structure and packaging changes separately from runtime camera behavior
+
+### PR 3: macOS support
+
+Goal:
+
+- land the actual user-visible macOS support
+
+Scope:
+
+- macOS example host and entitlements
+- macOS-specific capability handling and guarded fallbacks
+- docs, changelog, and release metadata
+- final manual QA results
+
+Why this helps:
+
+- the final PR becomes a focused review of macOS behavior rather than a giant mixed refactor
 
 ## Remaining Work Before PR
 
@@ -210,6 +273,6 @@ flutter build macos
 
 This branch has already answered the main architecture question: `camera_avfoundation` can use one shared Darwin AVFoundation implementation for iOS and macOS.
 
-Compared with Stuart's earlier external-camera prototype, the approach is mostly the same at the capture-model level and different mainly in scope: this branch adds the shared-Darwin refactor and macOS portability work, while Stuart's branch was a narrower iOS external-camera prototype.
+Compared with the earlier prototypes, the approach is mostly the same at the capture-model level and different mainly in scope: your `ios-support-external-cameras` branch was a narrower iOS external-camera prototype, while Stuart's `macos-camera` work was an outdated macOS WIP showing the expected extension point for `camera_avfoundation`.
 
-Recommendation: keep the shared Darwin layout, finish manual QA, and then decide whether to port the earlier external-camera discovery/disconnect behavior into the shared implementation before opening the PR.
+Recommendation: keep the shared Darwin layout, finish manual QA, and then decide whether to port the earlier external-camera discovery/disconnect behavior from your iOS prototype into the shared implementation before opening the PR.
