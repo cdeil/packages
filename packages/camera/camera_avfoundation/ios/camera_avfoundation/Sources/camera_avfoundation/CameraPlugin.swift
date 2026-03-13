@@ -30,8 +30,7 @@ public final class CameraPlugin: NSObject, FlutterPlugin {
       permissionManager: CameraPermissionManager(
         permissionService: DefaultPermissionService()),
       deviceFactory: { name in
-        // TODO(RobertOdrowaz) Implement better error handling and remove non-null assertion
-        AVCaptureDevice(uniqueID: name)!
+        AVCaptureDevice(uniqueID: name)
       },
       captureSessionFactory: { AVCaptureSession() },
       captureDeviceInputFactory: DefaultCaptureDeviceInputFactory(),
@@ -120,6 +119,19 @@ public final class CameraPlugin: NSObject, FlutterPlugin {
 }
 
 extension CameraPlugin: CameraApi {
+  private func supportedDiscoveryDevices() -> [AVCaptureDevice.DeviceType] {
+    var discoveryDevices: [AVCaptureDevice.DeviceType] = [
+      .builtInWideAngleCamera,
+      .builtInTelephotoCamera,
+      .builtInUltraWideCamera,
+    ]
+
+    if #available(iOS 17.0, macCatalyst 17.0, macOS 14.0, *) {
+      discoveryDevices.append(.external)
+    }
+
+    return discoveryDevices
+  }
 
   func getAvailableCameras(
     completion: @escaping (Result<[PlatformCameraDescription], any Error>) -> Void
@@ -127,11 +139,7 @@ extension CameraPlugin: CameraApi {
     captureSessionQueue.async { [weak self] in
       guard let strongSelf = self else { return }
 
-      let discoveryDevices: [AVCaptureDevice.DeviceType] = [
-        .builtInWideAngleCamera,
-        .builtInTelephotoCamera,
-        .builtInUltraWideCamera,
-      ]
+      let discoveryDevices = strongSelf.supportedDiscoveryDevices()
 
       let devices = strongSelf.deviceDiscoverer.discoverySession(
         withDeviceTypes: discoveryDevices,
@@ -268,6 +276,8 @@ extension CameraPlugin: CameraApi {
       }
     } catch let error as NSError {
       completion(.failure(CameraPlugin.pigeonErrorFromNSError(error)))
+    } catch {
+      completion(.failure(error))
     }
   }
 

@@ -2,6 +2,9 @@
 
 The iOS implementation of [`camera`][1].
 
+On supported iPadOS versions, this implementation can also discover connected
+external cameras via AVFoundation.
+
 ## Usage
 
 This package is [endorsed][2], which means you can simply use `camera`

@@ -8,7 +8,7 @@ import UIKit
 
 /// Factory block returning an FLTCaptureDevice.
 /// Used in tests to inject a video capture device into DefaultCamera.
-typealias VideoCaptureDeviceFactory = (_ cameraName: String) -> CaptureDevice
+typealias VideoCaptureDeviceFactory = (_ cameraName: String) -> CaptureDevice?
 
 typealias AudioCaptureDeviceFactory = () -> CaptureDevice
 

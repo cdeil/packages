@@ -133,6 +133,15 @@ final class DefaultCamera: NSObject, Camera {
       details: error.domain)
   }
 
+  private static func unavailableCameraError(for cameraName: String) -> NSError {
+    return NSError(
+      domain: NSCocoaErrorDomain,
+      code: URLError.resourceUnavailable.rawValue,
+      userInfo: [
+        NSLocalizedDescriptionKey: "Camera device '\(cameraName)' is unavailable."
+      ])
+  }
+
   private static func createConnection(
     captureDevice: CaptureDevice,
     videoFormat: FourCharCode,
@@ -174,7 +183,12 @@ final class DefaultCamera: NSObject, Camera {
     videoDimensionsConverter = configuration.videoDimensionsConverter
     deviceOrientationProvider = configuration.deviceOrientationProvider
 
-    captureDevice = videoCaptureDeviceFactory(configuration.initialCameraName)
+    guard let configuredCaptureDevice = videoCaptureDeviceFactory(configuration.initialCameraName)
+    else {
+      throw DefaultCamera.unavailableCameraError(for: configuration.initialCameraName)
+    }
+
+    captureDevice = configuredCaptureDevice
     flashMode = captureDevice.hasFlash ? .auto : .off
 
     capturePhotoOutput = AVCapturePhotoOutput()
@@ -251,6 +265,12 @@ final class DefaultCamera: NSObject, Camera {
         name: AVCaptureSession.runtimeErrorNotification,
         object: session)
     }
+
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(captureDeviceWasDisconnected),
+      name: AVCaptureDevice.wasDisconnectedNotification,
+      object: nil)
   }
 
   @objc private func captureSessionWasInterrupted(notification: NSNotification) {
@@ -260,6 +280,20 @@ final class DefaultCamera: NSObject, Camera {
   @objc private func captureSessionRuntimeError(notification: NSNotification) {
     reportErrorMessage(
       "\(String(describing: notification.userInfo?[AVCaptureSessionErrorKey] as? Error))")
+  }
+
+  @objc private func captureDeviceWasDisconnected(notification: NSNotification) {
+    guard captureDevice.position == .unspecified,
+      let disconnectedDevice = notification.object as? CaptureDevice,
+      disconnectedDevice.uniqueID == captureDevice.uniqueID
+    else {
+      return
+    }
+
+    isRecordingDisconnected = true
+    isStreamingImages = false
+    stop()
+    reportErrorMessage("The active camera was disconnected.")
   }
 
   // Possible values for presets are hard-coded in FLT interface having
@@ -1124,7 +1158,17 @@ final class DefaultCamera: NSObject, Camera {
       return
     }
 
-    captureDevice = videoCaptureDeviceFactory(cameraName)
+    guard let updatedCaptureDevice = videoCaptureDeviceFactory(cameraName) else {
+      completion(
+        .failure(
+          PigeonError(
+            code: "VideoError",
+            message: "Camera device unavailable",
+            details: cameraName)))
+      return
+    }
+
+    captureDevice = updatedCaptureDevice
 
     let oldConnection = captureVideoOutput.connection(with: .video)
 
@@ -1463,6 +1507,7 @@ final class DefaultCamera: NSObject, Camera {
   }
 
   func close() {
+    NotificationCenter.default.removeObserver(self)
     stop()
     for input in videoCaptureSession.inputs {
       videoCaptureSession.removeInput(input)
@@ -1504,6 +1549,7 @@ final class DefaultCamera: NSObject, Camera {
   }
 
   deinit {
+    NotificationCenter.default.removeObserver(self)
     motionManager.stopAccelerometerUpdates()
   }
 }
