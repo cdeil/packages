@@ -2,249 +2,168 @@
 
 ## Status
 
-This branch successfully pushed `camera_avfoundation` through a shared Darwin migration far enough that the package now builds for macOS while keeping existing iOS native tests green.
+This branch has successfully moved `camera_avfoundation` to a shared Darwin layout that builds for macOS while keeping the existing iOS native test suite green.
 
 Current state:
 
+- `sharedDarwinSource: true` is in use for both iOS and macOS.
+- The active native implementation now lives under `darwin/`.
+- The obsolete temporary `macos/` native prototype copy has been removed.
 - `flutter build macos` succeeds for the example app.
 - iOS native `RunnerTests` succeed.
-- Dart analysis and Dart tests succeed after the final example import cleanup.
-- The plugin now uses `sharedDarwinSource: true` in `pubspec.yaml` and has a real `darwin/` package layout.
-- The remaining work is no longer “make macOS compile”; it is now runtime validation, follow-up cleanup, and deciding how much more capability specialization is needed before opening a PR.
+- Dart format, analysis, and Dart tests succeed.
 
-Bottom line: the shared Darwin migration was a success. At this point I would recommend continuing with the shared Darwin layout rather than backing out to a separate macOS-only native implementation.
+Bottom line: the architectural migration is done. The remaining work before a PR is runtime validation and a small amount of product-level decision making around unsupported capabilities.
 
-## What Was Implemented
+## What Changed
 
-### 1. Orientation abstraction refactor
+### Shared Darwin migration
 
-The shared camera flow no longer stores `UIDeviceOrientation` directly in the core camera path.
+- Migrated the package to `sharedDarwinSource: true` in `pubspec.yaml`.
+- Added the real Darwin package layout under `darwin/camera_avfoundation/`.
+- Updated the example to include a working macOS host app with camera and microphone permissions.
+- Removed the temporary duplicate native implementation that had lived under `macos/`.
 
-Implemented changes:
+### Shared camera-path refactor
 
-- `Camera.deviceOrientation` now uses `PlatformDeviceOrientation` internally.
-- `CameraConfiguration.orientation` now uses `PlatformDeviceOrientation`.
-- `DefaultCamera.lockedCaptureOrientation` now stores an optional `PlatformDeviceOrientation` instead of using `UIDeviceOrientation.unknown` as a sentinel.
-- Orientation-to-`AVCaptureVideoOrientation` mapping was rewritten against `PlatformDeviceOrientation`.
-- Exposure and focus point calculations now use the platform-neutral orientation value from `DeviceOrientationProvider`.
+- Replaced direct `UIDeviceOrientation` usage in the core camera path with `PlatformDeviceOrientation`.
+- Isolated iOS-only device orientation notifications behind `#if os(iOS)`.
+- Added platform-aware orientation behavior so macOS can compile without iOS sensor APIs.
 
-Why this matters:
+### AVFoundation abstraction work
 
-- This removes the main type-system dependency that made the shared camera flow fundamentally iOS-only.
-- It is a prerequisite for any real Darwin-shared implementation.
+- Reworked the AVFoundation seam so the shared code uses wrapper objects for capture devices, sessions, connections, and outputs.
+- Moved capability and availability differences to the wrapper layer instead of letting shared code depend directly on iOS-only APIs.
+- Added macOS-safe fallbacks for unsupported capabilities on the current minimum target.
 
-### 2. iOS-only orientation notifications isolated
+### Validation cleanup
 
-Implemented changes:
+- Kept the iOS native test suite passing through the refactor.
+- Fixed example/test issues introduced during migration.
+- Restored a clean validation path for format, analyze, Dart tests, iOS native tests, and macOS build.
 
-- `CameraPlugin` now wraps `UIDevice` orientation notification registration in `#if os(iOS)`.
-- `CameraPlugin.orientationChanged` is iOS-only.
-- `DeviceOrientationProvider` is now platform-aware:
-  - iOS uses `UIDevice.current.orientation` converted into `PlatformDeviceOrientation`.
-  - macOS currently returns a deterministic `.landscapeLeft` fallback.
+## External-Camera Prototype Comparison
 
-Why this matters:
+I compared this branch against Stuart's earlier `ios-support-external-cameras` prototype branch.
 
-- The plugin can now compile orientation logic without assuming device-sensor APIs exist on macOS.
+### What Stuart's branch did
 
-### 3. Shared Darwin native layout migration
+- It kept the existing iOS AVFoundation architecture.
+- It added external-camera discovery on supported OS versions by appending `.external` to the discovery device list.
+- It added disconnect handling for the active external camera by observing `AVCaptureDevice.wasDisconnectedNotification` and surfacing an error when the active external device disappeared.
 
-Implemented changes:
+### What this branch does differently
 
-- `example/macos` was generated so there is now a real macOS app host for testing.
-- macOS app permissions were added to the example:
-  - `NSCameraUsageDescription`
-  - `NSMicrophoneUsageDescription`
-  - sandbox entitlements for camera and microphone
-- `CameraPlugin`, `Camera`, `DefaultCamera`, `ImageStreamHandler`, `SavePhotoDelegate`, and `CameraPermissionManager` were updated to use conditional `Flutter` / `FlutterMacOS` imports.
-- The package was migrated to the repo’s shared Darwin structure:
-  - `sharedDarwinSource: true` for iOS and macOS
-  - `darwin/camera_avfoundation/` Swift package
-  - `darwin/camera_avfoundation.podspec`
-- `example/macos/Runner.xcodeproj` was patched to add the standard Flutter ephemeral framework search path used by working macOS examples in this repo.
-- The existing `ios/` native source tree was kept as the working source while iterating, then synced into `darwin/` once the wrappers were stable.
+- The main difference is architectural scope, not capture-model philosophy.
+- This branch focuses on making the plugin genuinely Darwin-shared:
+  - shared package layout
+  - platform-neutral orientation types
+  - AVFoundation wrapper seams
+  - macOS-safe capability handling
+- It does not currently carry forward Stuart's external-camera discovery/disconnect behavior into the active shared implementation yet.
 
-Why this matters:
+### Conclusion from the comparison
 
-- This matches the direction already used by first-party Darwin plugins in this repo, including `video_player_avfoundation`.
-- The plugin now compiles from the same Darwin source base for both iOS and macOS instead of depending on a separate macOS prototype copy.
-
-### 4. AVFoundation abstraction reshaping
-
-Implemented changes:
-
-- Replaced direct protocol conformance by AVFoundation classes with explicit wrapper objects for:
-  - capture devices
-  - capture sessions
-  - video data outputs
-  - photo outputs
-  - capture connections
-- Removed iOS-only stabilization types from the shared protocol surface.
-- Added platform-specific fallbacks and no-ops for APIs that are unavailable on macOS 10.15.
-- Updated device discovery to wrap native devices and to avoid unavailable iOS-only camera device types on macOS.
-
-Why this matters:
-
-- This was the change that unblocked the macOS compile.
-- It also matches Apple’s current guidance more closely: keep a shared capture architecture, but isolate platform-specific capabilities and availability differences at the edge.
-
-### 5. Validation and test cleanup
-
-Implemented changes:
-
-- Fixed the iOS mock/test breakage introduced by the orientation refactor.
-- Added a minimal example Dart smoke test so the repository `dart-test` step passes again.
-- Removed generated example files that conflicted with the repo’s expected analysis/test setup.
-
-## Files Changed
-
-Primary implementation files changed in this prototype include:
-
-- `pubspec.yaml`
-- `darwin/camera_avfoundation/Package.swift`
-- `darwin/camera_avfoundation.podspec`
-- `darwin/camera_avfoundation/Sources/camera_avfoundation/...`
-- `ios/camera_avfoundation/Package.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/Camera.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/CameraConfiguration.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/CameraPlugin.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/CameraProperties.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/DefaultCamera.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/DeviceOrientationProvider.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/ImageStreamHandler.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/SavePhotoDelegate.swift`
-- `ios/camera_avfoundation/Sources/camera_avfoundation/CameraPermissionManager.swift`
-- `example/macos/...` generated macOS app scaffold and permission changes
-- `example/ios/RunnerTests/...` test/mocks updates
-- `example/test/main_test.dart`
-
-## Current Validation Results
-
-### Passing
-
-- `flutter_plugin_tools format --packages camera_avfoundation`
-- `flutter_plugin_tools analyze --packages camera_avfoundation`
-- `flutter_plugin_tools dart-test --packages camera_avfoundation`
-- `flutter build macos` from `packages/camera/camera_avfoundation/example`
-- iOS native `RunnerTests`:
-  - `xcodebuild test -workspace Runner.xcworkspace -scheme Runner -destination 'platform=iOS Simulator,name=iPad (A16)' -only-testing:RunnerTests`
-
-### Not yet verified manually
-
-- Real-device macOS camera preview/photo/video runtime behavior.
-- External camera runtime behavior on macOS.
-- Long-running audio/video recording behavior on macOS.
-- Runtime behavior of unsupported or partially supported device capabilities such as stabilization and advanced camera controls.
-
-## Remaining Risks and Follow-Up Work
-
-These are the remaining items before I would call it PR-ready.
-
-### 1. Runtime validation on macOS
-
-The major compile blockers are resolved, but I have not done human-in-the-loop runtime QA for:
-
-- preview rendering
-- still capture
-- video recording with audio enabled
-- image streaming
-- switching cameras
-- unplug/replug behavior for external cameras
-
-This is now the main unknown.
-
-### 2. Capability semantics on macOS 10.15
-
-The current implementation deliberately uses wrapper-level fallbacks and `false` capability checks for APIs that are unavailable on macOS 10.15, especially around:
-
-- video stabilization
-- some exposure-bias and zoom-related device properties
-- newer photo flash APIs on older macOS releases
-- iOS-only audio session behavior
-
-That is enough to compile and should be safe, but it needs product-level review for how those limitations should surface to Dart callers.
-
-### 3. Obsolete prototype leftovers should be cleaned up
-
-The old temporary `macos/camera_avfoundation` prototype copy is no longer the intended implementation path once `darwin/` is in use. It should be removed before a PR, along with any other obsolete migration artifacts.
-
-### 4. CocoaPods warnings remain expected for now
-
-Flutter tooling now prefers Swift Packages for these Darwin plugins and emits migration warnings during validation. That is expected based on your requirement to stay on CocoaPods for this PR. It is not a blocker for this branch.
-
-## Apple Guidance: Xcode 26 Era AVFoundation Recommendations
-
-Based on Apple’s current AVFoundation documentation and the Xcode 26-era AVCam sample, the guidance is broadly:
-
-1. Keep one shared capture architecture, not separate end-to-end camera stacks per platform.
-2. Put AVFoundation orchestration in a dedicated capture service rather than distributing session mutation across UI code.
-3. Treat authorization as an explicit asynchronous step before session setup.
-4. Reconfigure sessions atomically with begin/commit configuration when changing modes or devices.
-5. Isolate platform and device capability differences behind small seams instead of assuming the same feature set everywhere.
-6. Treat external and continuity devices as first-class inputs in macOS capture design.
-
-### Most relevant concrete recommendations
-
-- Apple’s current AVCam sample uses a dedicated capture service actor as the center of the design, explicitly to keep blocking capture work off the main thread and to centralize session state.
-- Apple’s capture setup documentation now frames iOS and macOS capture under the same high-level session/input/output architecture.
-- Apple’s authorization guidance recommends checking authorization status asynchronously and requesting access only when the user reaches a camera feature.
-- Apple’s newer capture setup docs explicitly call out macOS external inputs, including Continuity Camera support in macOS apps.
-- AVFoundation updates since the Xcode 26 timeframe emphasize capability-specific features rather than universal assumptions, such as constant color photo capture, background-replacement support on macOS, enhanced stabilization modes, and audio-session mixing behavior.
-
-### What that means for this plugin
-
-- A shared Darwin layout is consistent with Apple’s direction.
-- The right pattern is shared capture-session architecture with platform capability adapters, not a forked full macOS implementation unless platform behavior diverges much more than it currently appears to.
-- External cameras on macOS should be treated as a normal part of the design surface, not a special afterthought.
-- Audio recording should stay in scope for the first PR, but audio-session behavior must remain platform-specific.
-
-## Resolved Product Decisions Used In This Branch
-
-These decisions are now baked into the implementation direction:
-
-1. Use the shared Darwin layout.
-2. Support macOS 10.15 minimum.
-3. Keep audio recording in scope for the first PR.
-4. Stay on CocoaPods for now, despite the current Flutter warning noise.
-
-## Evaluation: Shared Darwin vs Separate macOS Layout
-
-My recommendation is to continue with the shared Darwin layout.
+External-camera support does not appear to require a fundamentally different session or device model on macOS.
 
 Why:
 
-- The migration did succeed technically.
-- The compile blockers were resolved by pushing capability differences into wrappers and guarded code paths, not by discovering an irreconcilable architecture mismatch.
-- The remaining work is runtime validation and cleanup, not a structural rescue.
-- This aligns with existing first-party plugin patterns in this repo.
-- This also aligns with Apple’s current documentation direction: common capture architecture, capability-driven specialization.
+- Stuart's prototype handled external cameras by extending the same capture-session architecture rather than introducing a separate pipeline.
+- The current branch also keeps the same overall camera/session model; it just makes that model portable across Darwin platforms.
+- The work needed for external cameras looks additive: discovery policy, disconnect handling, and capability validation.
 
-When I would reconsider and recommend a separate macOS native layout instead:
+So the answer to the question in the report is: no, the earlier prototype does not suggest that macOS external-camera support forces a significantly different session/device architecture.
 
-- If runtime validation shows too many behavior branches in `DefaultCamera` to keep the shared path readable.
-- If external camera support on macOS forces a significantly different session/device model.
-- If audio recording diverges enough that the common camera abstraction becomes misleading.
+## Recommendation
 
-At the current point, I do not think we are there.
+Keep the shared Darwin layout.
 
-## Recommended Next Steps Before PR
+The evidence so far points to:
 
-1. Remove obsolete temporary migration directories and other no-longer-used native files.
-2. Run full repo validation again after that cleanup.
-3. Do manual macOS QA for:
-  - preview
-  - still capture
-  - video recording with audio
-  - image streaming
-  - camera switching
-4. Test external cameras on macOS, especially hot-plug and disconnect behavior.
-5. Decide how unsupported capability requests should be surfaced to Dart on macOS: explicit errors versus capability-driven absence.
+- one shared AVFoundation capture architecture,
+- plus platform-specific capability adapters,
+- plus explicit handling for external-device discovery and disconnects.
 
-## Commands to Run All Test Levels
+That is consistent with both the current implementation and the earlier external-camera prototype.
 
-Run all commands from the repository root unless otherwise noted.
+## Remaining Work Before PR
 
-### Formatting
+### 1. Manual macOS runtime QA
+
+This is now the main unknown. The code builds, but it still needs real-device validation for:
+
+- preview rendering
+- still capture
+- video recording with audio
+- image streaming
+- camera switching
+- relaunch stability after permissions are granted
+
+### 2. External-camera behavior on macOS
+
+The current branch proves the shared Darwin migration. It does not yet prove full macOS external-camera behavior.
+
+Manual testing should cover:
+
+- app launch with an external camera already attached
+- attach after launch
+- select external camera
+- preview, photo, video, and streaming on that camera
+- unplug during preview
+- unplug during recording
+- unplug during image streaming
+- reconnect and recover
+
+### 3. Capability semantics review
+
+Some capabilities are intentionally guarded or downgraded on macOS 10.15. Before PR, we should confirm how these should surface to Dart callers:
+
+- stabilization
+- flash/torch-related behavior
+- exposure/zoom capability differences
+- any other feature where macOS support is partial rather than absent
+
+## Manual QA Checklist
+
+### Repository-level checks
+
+1. Run format.
+2. Run analyze.
+3. Run Dart tests.
+4. Run iOS native `RunnerTests`.
+5. Build the macOS example.
+
+### macOS app checks
+
+1. Launch the example on macOS.
+2. Grant camera permission.
+3. Grant microphone permission if recording with audio.
+4. Confirm preview renders frames.
+5. Take a still photo.
+6. Record video, then stop and verify completion.
+7. Start and stop image streaming.
+8. If multiple cameras exist, switch between them.
+9. Relaunch and verify initialization still works.
+
+### macOS external-camera checks
+
+1. Start with the external camera attached.
+2. Start without it attached, then plug it in.
+3. Select the external camera.
+4. Verify preview.
+5. Verify still capture.
+6. Verify video recording.
+7. Verify image streaming.
+8. Unplug during preview.
+9. Unplug during recording.
+10. Unplug during image streaming.
+11. Reconnect and verify recovery behavior.
+
+## Validation Commands
+
+Run from the repository root unless noted.
+
+### Format
 
 ```sh
 export REPO_ROOT=$PWD
@@ -253,7 +172,7 @@ dart run $REPO_ROOT/script/tool/bin/flutter_plugin_tools.dart format \
   --packages camera_avfoundation
 ```
 
-### Static analysis
+### Analyze
 
 ```sh
 export REPO_ROOT=$PWD
@@ -267,7 +186,7 @@ export REPO_ROOT=$PWD
 dart run $REPO_ROOT/script/tool/bin/flutter_plugin_tools.dart dart-test --packages camera_avfoundation
 ```
 
-### iOS native unit tests
+### iOS native tests
 
 Run from `packages/camera/camera_avfoundation/example/ios`:
 
@@ -279,126 +198,18 @@ xcodebuild test \
   -only-testing:RunnerTests
 ```
 
-### macOS example build
+### macOS build
 
 Run from `packages/camera/camera_avfoundation/example`:
 
 ```sh
 flutter build macos
 ```
-
-### macOS example run
-
-Run from `packages/camera/camera_avfoundation/example`:
-
-```sh
-flutter run -d macos
-```
-
-### macOS CocoaPods refresh
-
-Run from `packages/camera/camera_avfoundation/example/macos`:
-
-```sh
-pod install
-```
-
-### Verbose macOS build for debugging
-
-Run from `packages/camera/camera_avfoundation/example`:
-
-```sh
-flutter build macos -v
-```
-
-## Step-by-Step Manual Testing and QA
-
-### A. Baseline repository QA
-
-1. Run format.
-2. Run analyze.
-3. Run Dart tests.
-4. Run iOS native `RunnerTests`.
-5. Confirm there are no unexpected generated-file diffs after those steps.
-
-### B. iOS regression QA
-
-1. Launch the example on iOS.
-2. Grant camera permission.
-3. Verify preview appears.
-4. Take a still photo.
-5. Start and stop video recording.
-6. Toggle flash modes.
-7. Change focus/exposure points if supported.
-8. Lock and unlock capture orientation.
-9. Start and stop image streaming.
-10. Dispose and recreate the controller.
-
-### C. macOS manual QA once the build compiles
-
-1. Build and launch the macOS example.
-2. Confirm the camera permission prompt appears.
-3. Confirm the microphone permission prompt appears if audio recording is enabled.
-4. Verify the preview renders actual frames.
-5. Take a still photo.
-6. Start and stop video recording.
-7. Start and stop image streaming.
-8. If multiple cameras exist, switch between them.
-9. If an external camera exists, test it separately from the built-in camera.
-10. Quit and relaunch the app to verify permission and initialization stability.
-
-### D. External camera QA on macOS once supported
-
-1. Launch with the external camera already attached.
-2. Launch without it attached, then connect it.
-3. Select the external camera.
-4. Verify preview.
-5. Verify still capture.
-6. Verify video recording.
-7. Verify image streaming.
-8. Unplug the active external camera during preview.
-9. Unplug during video recording.
-10. Unplug during image streaming.
-11. Reconnect the device and verify the app can recover.
-
-## How to Build and Run the Example App on macOS
-
-### Current reality on this branch
-
-The commands are:
-
-```sh
-cd packages/camera/camera_avfoundation/example
-flutter pub get
-flutter run -d macos
-```
-
-or, for a release-style build:
-
-```sh
-cd packages/camera/camera_avfoundation/example
-flutter build macos
-```
-
-You can also open the native project directly:
-
-```sh
-open macos/Runner.xcworkspace
-```
-
-Then select the `Runner` scheme and `My Mac` destination in Xcode.
 
 ## Bottom Line
 
-This branch moved `camera_avfoundation` from an iOS-only implementation to a shared Darwin implementation that now builds for macOS and stays green on the existing iOS native suite.
+This branch has already answered the main architecture question: `camera_avfoundation` can use one shared Darwin AVFoundation implementation for iOS and macOS.
 
-The key outcome is not just “macOS compile works”; it is that the shared Darwin approach proved viable without forcing a separate macOS native stack.
+Compared with Stuart's earlier external-camera prototype, the approach is mostly the same at the capture-model level and different mainly in scope: this branch adds the shared-Darwin refactor and macOS portability work, while Stuart's branch was a narrower iOS external-camera prototype.
 
-The remaining work is now operational and product-facing rather than architectural:
-
-- cleanup
-- manual macOS QA
-- external camera validation
-- deciding capability semantics for macOS-specific gaps
-
-Recommendation: keep the shared Darwin layout.
+Recommendation: keep the shared Darwin layout, finish manual QA, and then decide whether to port the earlier external-camera discovery/disconnect behavior into the shared implementation before opening the PR.
