@@ -1,3 +1,9 @@
+## 0.11.0
+
+* Adds initial macOS support using a shared Darwin native source layout.
+* Refactors native camera orientation handling to use platform-neutral device orientation types.
+* Preserves iOS camera and audio recording behavior while adding macOS build support.
+
 ## 0.10.1
 
 * Fixes fatal crash on iPhone 17 when using `ResolutionPreset.max`.

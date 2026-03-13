@@ -10,7 +10,7 @@ import AVFoundation
 final class MockCaptureConnection: NSObject, CaptureConnection {
   var setVideoOrientationStub: ((AVCaptureVideoOrientation) -> Void)?
 
-  var connection: AVCaptureConnection {
+  var avConnection: AVCaptureConnection {
     preconditionFailure("Attempted to access unimplemented property: connection")
   }
   var isVideoMirrored = false
@@ -23,5 +23,5 @@ final class MockCaptureConnection: NSObject, CaptureConnection {
   var inputPorts: [AVCaptureInput.Port] = []
   var isVideoMirroringSupported = false
   var isVideoOrientationSupported = false
-  var preferredVideoStabilizationMode = AVCaptureVideoStabilizationMode.off
+  var preferredVideoStabilizationMode = PlatformVideoStabilizationMode.off
 }

@@ -66,7 +66,7 @@ enum CameraTestUtils {
 
     configuration.videoCaptureSession = videoSessionMock
     configuration.audioCaptureSession = audioSessionMock
-    configuration.orientation = .portrait
+    configuration.orientation = .portraitUp
 
     configuration.assetWriterFactory = { _, _ in MockAssetWriter() }
 

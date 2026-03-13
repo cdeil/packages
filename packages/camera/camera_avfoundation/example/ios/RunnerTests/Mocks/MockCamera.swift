@@ -10,6 +10,7 @@ import Flutter
 final class MockCamera: NSObject, Camera {
   var setDartApiStub: ((CameraEventApi?) -> Void)?
   var setOnFrameAvailableStub: (((() -> Void)?) -> Void)?
+  var getDeviceOrientationStub: (() -> PlatformDeviceOrientation)?
   var getMinimumExposureOffsetStub: (() -> CGFloat)?
   var getMaximumExposureOffsetStub: (() -> CGFloat)?
   var getMinimumAvailableZoomFactorStub: (() -> CGFloat)?
@@ -23,7 +24,7 @@ final class MockCamera: NSObject, Camera {
   var resumeVideoRecordingStub: (() -> Void)?
   var stopVideoRecordingStub: ((@escaping (Result<String, any Error>) -> Void) -> Void)?
   var captureToFileStub: ((@escaping (Result<String, any Error>) -> Void) -> Void)?
-  var setDeviceOrientationStub: ((UIDeviceOrientation) -> Void)?
+  var setDeviceOrientationStub: ((PlatformDeviceOrientation) -> Void)?
   var lockCaptureOrientationStub: ((PlatformDeviceOrientation) -> Void)?
   var unlockCaptureOrientationStub: (() -> Void)?
   var setImageFileFormatStub: ((PlatformImageFileFormat) -> Void)?
@@ -67,12 +68,14 @@ final class MockCamera: NSObject, Camera {
 
   var isPreviewPaused: Bool = false
   var isStreamingImages: Bool = false
+  private var currentDeviceOrientation: PlatformDeviceOrientation = .portraitUp
 
-  var deviceOrientation: UIDeviceOrientation {
+  var deviceOrientation: PlatformDeviceOrientation {
     get {
-      preconditionFailure("Attempted to access unimplemented property: deviceOrientation")
+      return getDeviceOrientationStub?() ?? currentDeviceOrientation
     }
     set {
+      currentDeviceOrientation = newValue
       setDeviceOrientationStub?(newValue)
     }
   }

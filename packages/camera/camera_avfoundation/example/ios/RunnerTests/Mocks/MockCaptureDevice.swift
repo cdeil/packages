@@ -113,7 +113,7 @@ class MockCaptureDevice: NSObject, CaptureDevice {
 
   var iso: Float { 100 }
 
-  func isVideoStabilizationModeSupported(_ videoStabilizationMode: AVCaptureVideoStabilizationMode)
+  func isVideoStabilizationModeSupported(_ videoStabilizationMode: PlatformVideoStabilizationMode)
     -> Bool
   {
     return false

@@ -179,7 +179,8 @@ final class StreamingTests: XCTestCase {
   func testImageStreamEventFormat() throws {
     let (camera, testAudioOutput, sampleBuffer, _, testAudioConnection) = createCamera()
 
-    let expectation = expectation(description: "Received a valid event")
+    let imageEventExpectation = expectation(description: "Received a valid event")
+    let finishStartStreamExpectation = expectation(description: "Finish startStream")
 
     let handlerMock = MockImageStreamHandler()
     handlerMock.eventSinkSuccessStub = { event in
@@ -202,16 +203,18 @@ final class StreamingTests: XCTestCase {
       XCTAssertGreaterThan(planeBuffer.height, 0)
       XCTAssertGreaterThan(planeBuffer.bytes.data.count, 0)
 
-      expectation.fulfill()
+      imageEventExpectation.fulfill()
     }
     let messenger = MockFlutterBinaryMessenger()
-    camera.startImageStream(with: messenger, imageStreamHandler: handlerMock) { _ in }
+    camera.startImageStream(with: messenger, imageStreamHandler: handlerMock) { _ in
+      finishStartStreamExpectation.fulfill()
+    }
 
-    waitForQueueRoundTrip(with: DispatchQueue.main)
+    wait(for: [finishStartStreamExpectation], timeout: 30)
     XCTAssertEqual(camera.isStreamingImages, true)
 
     camera.captureOutput(testAudioOutput, didOutput: sampleBuffer, from: testAudioConnection)
 
-    waitForExpectations(timeout: 30, handler: nil)
+    wait(for: [imageEventExpectation], timeout: 30)
   }
 }
