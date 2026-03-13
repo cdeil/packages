@@ -53,3 +53,90 @@ Keep the shared Darwin layout.
 The remaining problems are runtime behavior and capability-handling issues, not evidence that macOS needs a separate long-term architecture.
 
 All runtime findings, matrices, regressions, and manual QA results should live in [packages/camera/camera_avfoundation/camera_avfoundation_macos_testing_report.md](/Users/cdeil/code/oss/packages/packages/camera/camera_avfoundation/camera_avfoundation_macos_testing_report.md).
+
+## Proposed PR Split
+
+The current spike branch is a good candidate for splitting into 3 PRs.
+
+Why split it:
+
+- GitHub review becomes much easier when structural refactors, feature bring-up, and debugging/example work are separated.
+- Reviewers can validate the low-risk architectural work first before getting into macOS runtime behavior.
+- If the macOS orientation issues keep moving, they do not have to block landing the earlier cleanup and plumbing work.
+
+Based on the current diff against `main`, the changed files are concentrated in:
+
+- shared preview widget code in `camera`
+- Darwin native files in `camera_avfoundation`
+- example app Dart and macOS host files
+- the macOS report documents
+
+### PR 1: Shared Darwin migration and core refactor
+
+Goal:
+
+- land the structural migration and shared-camera-path cleanup with minimal user-visible discussion
+
+Should contain:
+
+- `sharedDarwinSource: true` migration and Darwin layout changes
+- shared AVFoundation wrapper/refactor work
+- platform-aware orientation/device abstractions needed for shared compilation
+- removal of the obsolete duplicate macOS native implementation
+- any required iOS-safe test or build fixes that are strictly part of the refactor
+
+Why first:
+
+- this is the lowest-level foundation
+- it is the easiest part to review in isolation
+- it reduces noise in later PRs
+
+### PR 2: macOS camera bring-up
+
+Goal:
+
+- land basic macOS support as a working feature: enumerate cameras, start preview, and take still images
+
+Should contain:
+
+- macOS session wiring changes in the Darwin native camera implementation
+- macOS camera discovery changes, including external-style devices
+- still-capture path changes needed for macOS bring-up
+- macOS example host app support and permissions wiring
+- the app-facing preview widget changes needed to render macOS preview content
+
+Why second:
+
+- this is the actual feature PR from a product perspective
+- it can be reviewed as “macOS support exists” even if orientation is not fully polished yet
+
+### PR 3: example UX, debugging, and follow-up runtime fixes
+
+Goal:
+
+- land the debugging and stabilization work that made the feature testable on real hardware
+
+Should contain:
+
+- example camera selector improvements
+- macOS localized camera-name lookup in the example host app
+- example controller lifecycle fixes for rapid camera switching
+- capability guards for unsupported focus/exposure point interactions
+- temporary macOS audio mitigation in the example
+- report/documentation updates that describe the current runtime status
+- any remaining orientation fixes if they are not ready for PR 2
+
+Why third:
+
+- most of this is example-only or follow-up stabilization work
+- it is useful, but not essential to understanding the core migration or initial macOS bring-up
+
+## Open Question
+
+The one thing that could change the exact boundary between PR 2 and PR 3 is the orientation problem.
+
+Open question:
+
+- if preview/still-photo orientation fixes stay invasive, should they remain in PR 3 as follow-up stabilization work, or should the minimum acceptable macOS-support PR require correct orientation before landing?
+
+I would leave that open for now while continuing orientation debugging.
