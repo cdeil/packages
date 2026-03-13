@@ -1,3 +1,8 @@
+## 0.11.0
+
+* Adds support for discovering and initializing external cameras on supported iPadOS versions.
+* Reports an error if the active external camera is disconnected.
+
 ## 0.10.1
 
 * Fixes fatal crash on iPhone 17 when using `ResolutionPreset.max`.

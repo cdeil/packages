@@ -7,7 +7,9 @@ import XCTest
 @testable import camera_avfoundation
 
 final class CameraPluginCreateCameraTests: XCTestCase {
-  private func createCameraPlugin() -> (
+  private func createCameraPlugin(
+    deviceFactory: @escaping VideoCaptureDeviceFactory = { _ in MockCaptureDevice() }
+  ) -> (
     CameraPlugin, MockCameraPermissionManager, MockCaptureSession
   ) {
     let mockPermissionManager = MockCameraPermissionManager()
@@ -19,7 +21,7 @@ final class CameraPluginCreateCameraTests: XCTestCase {
       globalAPI: MockGlobalEventApi(),
       deviceDiscoverer: MockCameraDeviceDiscoverer(),
       permissionManager: mockPermissionManager,
-      deviceFactory: { _ in MockCaptureDevice() },
+      deviceFactory: deviceFactory,
       captureSessionFactory: { mockCaptureSession },
       captureDeviceInputFactory: MockCaptureDeviceInputFactory(),
       captureSessionQueue: DispatchQueue(label: "io.flutter.camera.captureSessionQueue")
@@ -127,5 +129,38 @@ final class CameraPluginCreateCameraTests: XCTestCase {
     waitForExpectations(timeout: 30, handler: nil)
 
     XCTAssertNotNil(cameraPlugin.camera)
+  }
+
+  func testCreateCamera_failsWhenRequestedDeviceIsUnavailable() {
+    let (cameraPlugin, mockPermissionManager, _) = createCameraPlugin(deviceFactory: { _ in nil })
+    let expectation = expectation(description: "Initialization completed")
+
+    mockPermissionManager.requestCameraPermissionStub = { completion in
+      completion(nil)
+    }
+
+    var failure: Error?
+    cameraPlugin.create(
+      cameraName: "missing_camera",
+      settings: PlatformMediaSettings(
+        resolutionPreset: .medium,
+        framesPerSecond: nil,
+        videoBitrate: nil,
+        audioBitrate: nil,
+        enableAudio: false)
+    ) { result in
+      switch result {
+      case .success:
+        XCTFail("Expected create to fail when the camera device is unavailable")
+      case .failure(let error):
+        failure = error
+      }
+      expectation.fulfill()
+    }
+
+    waitForExpectations(timeout: 30, handler: nil)
+
+    XCTAssertNotNil(failure)
+    XCTAssertNil(cameraPlugin.camera)
   }
 }

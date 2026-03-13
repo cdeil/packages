@@ -8,6 +8,18 @@ import XCTest
 @testable import camera_avfoundation
 
 final class AvailableCamerasTest: XCTestCase {
+  private func expectedDiscoveryDeviceTypes() -> [AVCaptureDevice.DeviceType] {
+    var requiredTypes: [AVCaptureDevice.DeviceType] = [
+      .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera,
+    ]
+
+    if #available(iOS 17.0, macCatalyst 17.0, macOS 14.0, *) {
+      requiredTypes.append(.external)
+    }
+
+    return requiredTypes
+  }
+
   private func createCameraPlugin(with deviceDiscoverer: MockCameraDeviceDiscoverer) -> CameraPlugin
   {
     return CameraPlugin(
@@ -46,10 +58,16 @@ final class AvailableCamerasTest: XCTestCase {
       telephotoCamera.uniqueID = "3"
       telephotoCamera.position = .back
 
-      var requiredTypes: [AVCaptureDevice.DeviceType] = [
-        .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera,
-      ]
+      let requiredTypes = self.expectedDiscoveryDeviceTypes()
       var cameras = [wideAngleCamera, frontFacingCamera, telephotoCamera, ultraWideCamera]
+
+      if #available(iOS 17.0, macCatalyst 17.0, macOS 14.0, *) {
+        let externalCamera = MockCaptureDevice()
+        externalCamera.uniqueID = "4"
+        externalCamera.position = .unspecified
+        externalCamera.deviceType = .external
+        cameras.append(externalCamera)
+      }
 
       XCTAssertEqual(deviceTypes, requiredTypes)
       XCTAssertEqual(mediaType, .video)
@@ -65,7 +83,7 @@ final class AvailableCamerasTest: XCTestCase {
     waitForExpectations(timeout: 30, handler: nil)
 
     // Verify the result.
-    XCTAssertEqual(resultValue?.count, 4)
+    XCTAssertEqual(resultValue?.count, expectedDiscoveryDeviceTypes().count + 1)
   }
 
   func testAvailableCamerasShouldReturnTwoCamerasOnDualCameraIPhone() {
@@ -83,9 +101,7 @@ final class AvailableCamerasTest: XCTestCase {
       frontFacingCamera.uniqueID = "1"
       frontFacingCamera.position = .front
 
-      var requiredTypes: [AVCaptureDevice.DeviceType] = [
-        .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera,
-      ]
+      let requiredTypes = self.expectedDiscoveryDeviceTypes()
       let cameras = [wideAngleCamera, frontFacingCamera]
 
       XCTAssertEqual(deviceTypes, requiredTypes)
@@ -115,9 +131,7 @@ final class AvailableCamerasTest: XCTestCase {
       unspecifiedCamera.uniqueID = "0"
       unspecifiedCamera.position = .unspecified
 
-      var requiredTypes: [AVCaptureDevice.DeviceType] = [
-        .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera,
-      ]
+      let requiredTypes = self.expectedDiscoveryDeviceTypes()
       let cameras = [unspecifiedCamera]
 
       XCTAssertEqual(deviceTypes, requiredTypes)
@@ -134,5 +148,25 @@ final class AvailableCamerasTest: XCTestCase {
     waitForExpectations(timeout: 30, handler: nil)
 
     XCTAssertEqual(resultValue?.first?.lensDirection, .external)
+  }
+
+  func testAvailableCamerasShouldRequestExternalDeviceTypeWhenSupported() {
+    let mockDeviceDiscoverer = MockCameraDeviceDiscoverer()
+    let cameraPlugin = createCameraPlugin(with: mockDeviceDiscoverer)
+    let expectation = self.expectation(description: "Result finished")
+
+    mockDeviceDiscoverer.discoverySessionStub = { deviceTypes, mediaType, position in
+      XCTAssertEqual(deviceTypes, self.expectedDiscoveryDeviceTypes())
+      XCTAssertEqual(mediaType, .video)
+      XCTAssertEqual(position, .unspecified)
+      return []
+    }
+
+    cameraPlugin.getAvailableCameras { result in
+      let _ = self.assertSuccess(result)
+      expectation.fulfill()
+    }
+
+    waitForExpectations(timeout: 30, handler: nil)
   }
 }
